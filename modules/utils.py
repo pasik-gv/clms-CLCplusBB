@@ -11,7 +11,6 @@ from matplotlib.colors import Normalize
 
 from modules.regions_dict import regions_dict
 from PIL import Image
-from scipy.ndimage import zoom
 
 # CLC+Backbone class mapping with names and colors
 CLC_CLASS_INFO = {
