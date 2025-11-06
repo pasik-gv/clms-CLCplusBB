@@ -7,7 +7,7 @@ from modules.utils import read_image
 def get_boundary_length(raster_path, band_num=0, pixel_size=None, input_nodata=None, return_density=True):
     """
     Calculate the total boundary length (in kilometers) between all classes in a raster.
-    Optionally returns edge density (meters per square meter).
+    Optionally returns edge density expressed as meters per hectare (m/ha).
 
     Parameters
     ----------
@@ -29,10 +29,8 @@ def get_boundary_length(raster_path, band_num=0, pixel_size=None, input_nodata=N
     """
     with rasterio.open(raster_path) as src:
         data = src.read(band_num + 1).copy()  # rasterio uses 1-based indexing
-        
         if pixel_size is None:
             pixel_size = abs(src.transform.a)
-            print("pixel size:", pixel_size)
     if input_nodata is not None:
         mask = np.isin(data, input_nodata) if isinstance(input_nodata, list) else (data == input_nodata)
         data[mask] = 255  # set nodata to a unique value
@@ -50,17 +48,19 @@ def get_boundary_length(raster_path, band_num=0, pixel_size=None, input_nodata=N
     valid_pixels = np.sum(data != 255)
     pixel_area = pixel_size ** 2
     total_area = valid_pixels * pixel_area
-    edge_density = boundary_length_m / total_area if total_area > 0 else 0.0
+    # Edge density in meters per hectare (m/ha)
+    # total_area is in m². 1 hectare = 10,000 m²
+    edge_density_m_per_ha = (boundary_length_m / (total_area / 10000.0)) if total_area > 0 else 0.0
 
     if return_density:
-        return round(boundary_length_km, 3), round(edge_density, 6)
+        return round(boundary_length_km, 3), round(edge_density_m_per_ha, 6)
     else:
         return round(boundary_length_km, 3), None
 
 def get_boundary_length_per_class_pair(raster_path, band_num=0, pixel_size=None, input_nodata=None, return_density=True, class_info=None):
     """
     Calculate the boundary length (in kilometers) for each pair of classes in a categorical raster.
-    Optionally returns edge density per class pair.
+    Optionally returns edge density per class pair in meters per hectare (m/ha).
 
     Parameters
     ----------
@@ -140,9 +140,9 @@ def get_boundary_length_per_class_pair(raster_path, band_num=0, pixel_size=None,
         for key in boundary_lengths:
             length_m = boundary_lengths[key]
             length_km = length_m / 1000  # Convert meters to kilometers
-            edge_density = length_m / total_area if total_area > 0 else 0.0
-            boundary_lengths[key] = (round(length_km, 3), round(edge_density, 6))
-            # print(f"Class pair {key}: Boundary length = {length_km:.3f} km, Edge density = {edge_density:.6f} m/m²")
+            edge_density_m_per_ha = (length_m / (total_area / 10000.0)) if total_area > 0 else 0.0
+            boundary_lengths[key] = (round(length_km, 3), round(edge_density_m_per_ha, 6))
+            # print(f"Class pair {key}: Boundary length = {length_km:.3f} km, Edge density = {edge_density_m_per_ha:.6f} m/ha")
     else:
         for key in boundary_lengths:
             length_km = boundary_lengths[key] / 1000  # Convert meters to kilometers

@@ -7,9 +7,10 @@ import branca.colormap as cm
 from modules.regions_dict import regions_dict
 from modules.utils import read_image, save_as_png
 
-def prepare_layer_to_map_discrete(rasters_dir, chosen_region, layer_dict, class_info, target_projection='4326'):
+def prepare_layer_to_map_discrete(rasters_dir, chosen_region, layer_dict, class_info,
+                                  target_projection='4326', figure_size=(14, 14), dpi=300):
     '''
-    Helper function to process a discrete/categorical raster dataset, convert it to a PNG file, 
+    Helper function to process a discrete/categorical raster dataset, convert it to a high-resolution PNG file,
     and return properties for displaying on a Folium map.
     
     Input:
@@ -22,6 +23,8 @@ def prepare_layer_to_map_discrete(rasters_dir, chosen_region, layer_dict, class_
         - `opacity (float)`: opacity of the layer
     - `class_info (dict)`: Dictionary mapping class IDs to {"name": str, "color": str}.
     - `target_projection (str)`: target projection of the raster. Default is '4326'.
+    - `figure_size (tuple)`: matplotlib figure size used when rendering the PNG (default (14,14) for higher detail).
+    - `dpi (int)`: dots per inch for PNG export (default 300 for crisper display when zooming).
 
     Output:
     - `path_to_png (str)`: path to the saved PNG file.
@@ -78,17 +81,19 @@ def prepare_layer_to_map_discrete(rasters_dir, chosen_region, layer_dict, class_
     os.makedirs('tmp', exist_ok=True)
     path_to_png = f'tmp/tmp_{dataset_label}_discrete.png'
     
-    fig_temp, ax_temp = plt.subplots(figsize=(10, 10))
+    fig_temp, ax_temp = plt.subplots(figsize=figure_size)
     ax_temp.imshow(arr_indexed, cmap=cmap, norm=norm)
     ax_temp.set_xticks([])
     ax_temp.set_yticks([])
     ax_temp.axis('off')
-    plt.savefig(path_to_png, bbox_inches='tight', pad_inches=0, dpi=150, transparent=True)
+    plt.savefig(path_to_png, bbox_inches='tight', pad_inches=0, dpi=dpi, transparent=True)
     plt.close()
     
     return path_to_png, bounds, colors, class_names
 
-def display_map_discrete(rasters_dir, chosen_region, base_map, layer_dict, class_info, map_size=(650, 400), target_projection='4326'):
+def display_map_discrete(rasters_dir, chosen_region, base_map, layer_dict, class_info,
+                         map_size=(650, 400), target_projection='4326',
+                         overlay_figure_size=(14,14), overlay_dpi=300):
     '''
     Create a folium map of the chosen region showing a single discrete/categorical layer.
     Designed for discrete datasets like land cover classifications.
@@ -107,6 +112,8 @@ def display_map_discrete(rasters_dir, chosen_region, base_map, layer_dict, class
     - `class_info (dict)`: Dictionary mapping class IDs to {"name": str, "color": str}.
     - `map_size (tuple)`: size of the map in pixels (width, height). Default is (650, 400).
     - `target_projection (str)`: target projection of the raster. Default is '4326'.
+    - `overlay_figure_size (tuple)`: figure size used to render the categorical PNG overlay (default (14,14)).
+    - `overlay_dpi (int)`: dpi used to render the overlay PNG (default 300).
                     
     Output: folium map of the chosen region with the discrete layer and legend
     '''
@@ -118,7 +125,10 @@ def display_map_discrete(rasters_dir, chosen_region, base_map, layer_dict, class
 
     # process the discrete layer using the discrete-specific function
     path_to_png, bounds, colors, class_names = prepare_layer_to_map_discrete(
-        rasters_dir, chosen_region, layer_dict, class_info, target_projection=target_projection
+        rasters_dir, chosen_region, layer_dict, class_info,
+        target_projection=target_projection,
+        figure_size=overlay_figure_size,
+        dpi=overlay_dpi
     )
 
     # add ImageOverlay to the map

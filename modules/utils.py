@@ -3,13 +3,13 @@ import numpy as np
 import pandas as pd
 import rasterio
 import ipywidgets as widgets
-from IPython.display import display
+from IPython.display import display, HTML
 
 import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 
-from modules.regions_dict import regions_dict
+from modules.regions_dict import regions_dict, parks_info
 from PIL import Image
 
 # CLC+Backbone class mapping with names and colors
@@ -117,23 +117,22 @@ def visualize_class_pair_boundaries(class_pair_results, class_info=None, use_nam
         
         # Create heatmap with viridis colormap
         current_ax = axes[i] if show_both else ax
-        
-        # Create heatmap with viridis colormap
-        current_ax = axes[i] if show_both else ax
-        sns.heatmap(df, 
-                    annot=True, 
-                    fmt='.3f' if current_metric == 'length' else '.6f',
-                    cmap='viridis',
-                    cbar_kws={'label': 'Boundary Length (km)' if current_metric == 'length' else 'Edge Density (m/m²)'},
-                    ax=current_ax)
-        
+        sns.heatmap(
+            df,
+            annot=True,
+            fmt='.3f' if current_metric == 'length' else '.6f',
+            cmap='viridis',
+            cbar_kws={'label': 'Boundary Length (km)' if current_metric == 'length' else 'Edge Density (m/ha)'},
+            ax=current_ax
+        )
+
         # Set labels and title with units
         if current_metric == 'length':
             title = "Class Pair Boundary Lengths [km]"
         else:
-            title = "Class Pair Edge Densities [m/m²]"
+            title = "Class Pair Edge Densities [m/ha]"
         current_ax.set_title(title, fontsize=16, pad=20)
-        
+
         # Rotate labels for better readability with proper alignment for wrapped text
         current_ax.tick_params(axis='x', rotation=45, labelrotation=45)
         current_ax.tick_params(axis='y', rotation=0)
@@ -411,3 +410,176 @@ def plot_discrete_histogram(rasters_dir, chosen_region, dataset_label='CLCplusBB
     
     plt.show()
     plt.close()
+
+def plot_dual_histograms(rasters_dir1, rasters_dir2, chosen_region, dataset_label,
+                        class_info=CLC_CLASS_INFO, target_projection='4326',
+                        title1="Area 1", title2="Area 2", figure_size=(16, 8),
+                        wrap_width=16, headroom_factor=1.25):
+    """
+    Plot two histograms side by side with a common percentage y-axis and shared legend.
+    
+    Parameters
+    ----------
+    rasters_dir1 : str
+        Path to the first raster directory
+    rasters_dir2 : str  
+        Path to the second raster directory
+    chosen_region : str
+        Name of the chosen region
+    dataset_label : str
+        Label for the dataset (e.g., 'CLCplusBB')
+    class_info : dict
+        Dictionary mapping class IDs to {"name": str, "color": str}
+    target_projection : str
+        Target projection for reprojection (default '4326')
+    title1 : str
+        Title for the first histogram
+    title2 : str
+        Title for the second histogram
+    figure_size : tuple
+        Figure size (width, height)
+    """
+    from modules.analysis import calculate_class_areas
+    
+    # Calculate class areas for both datasets
+    area_results1 = calculate_class_areas(rasters_dir1, chosen_region, dataset_label, 
+                                         target_projection, class_info)
+    area_results2 = calculate_class_areas(rasters_dir2, chosen_region, dataset_label, 
+                                         target_projection, class_info)
+    
+    # Extract data for plotting
+    def extract_plot_data(area_results):
+        class_areas = area_results['class_areas']
+        class_percentages = area_results['class_percentages']
+        pixel_size_m = area_results['pixel_size_m']
+        total_area_m2 = area_results['total_area_m2']
+        
+        # Calculate pixel counts from areas
+        pixel_area_m2 = pixel_size_m ** 2
+        total_pixels = int(total_area_m2 / pixel_area_m2)
+        
+        class_ids = list(class_areas.keys())
+        counts = [int(area_m2 / pixel_area_m2) for area_m2 in class_areas.values()]
+        percentages = list(class_percentages.values())
+        
+        colors = [class_info[class_id]["color"] for class_id in class_ids]
+        labels = [class_info[class_id]["name"] for class_id in class_ids]
+        
+        return class_ids, counts, percentages, colors, labels, total_pixels
+    
+    data1 = extract_plot_data(area_results1)
+    data2 = extract_plot_data(area_results2)
+    
+    # Get all unique classes from both datasets for consistent scaling
+    all_classes = sorted(list(set(data1[0] + data2[0])))
+    
+    # Create figure with subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figure_size, sharey=True)
+    
+    # Function to create histogram
+    def create_histogram(ax, data, title):
+        import textwrap
+        class_ids, counts, percentages, colors, labels, total_pixels = data
+
+        # Wrapped labels (insert '\n' to break long names)
+        wrapped_labels = [textwrap.fill(label, wrap_width) for label in labels]
+
+        # Use percentages for bar heights
+        bars = ax.bar(range(len(class_ids)), percentages, color=colors,
+                      edgecolor='black', linewidth=0.8, alpha=0.85)
+
+        # Axis labels
+        ax.set_xlabel('Land Cover Classes', fontsize=12)
+        if ax is ax1:  # y-axis only on left subplot
+            ax.set_ylabel('Percentage of Pixels (%)', fontsize=12)
+
+        # X ticks: wrapped class names
+        ax.set_xticks(range(len(class_ids)))
+        # Rotate wrapped labels to reduce horizontal overlap while keeping multi-line wrapping
+        ax.set_xticklabels(wrapped_labels, rotation=40, ha='right', fontsize=9)
+
+        # Percentage annotations above bars
+        for bar, pct in zip(bars, percentages):
+            height = bar.get_height()
+            # Slightly larger offset to avoid touching top border when scaled tightly
+            ax.text(bar.get_x() + bar.get_width()/2., height + max(height*0.02, 0.7),
+                    f'{pct:.1f}%', ha='center', va='bottom', fontsize=9)
+
+        # Title
+        ax.set_title(title, fontsize=14, fontweight='bold')
+
+        # Grid styling
+        ax.grid(True, axis='y', linestyle='--', linewidth=0.5, alpha=0.7)
+        ax.set_axisbelow(True)
+
+        # Dynamic y-limit based on data (headroom factor)
+        max_pct = max(percentages) if percentages else 0
+        def round_up(val, base=5):
+            return base * int(np.ceil(val / base)) if val > 0 else base
+        upper = round_up(max_pct * headroom_factor)
+        if upper < 5:
+            upper = 5
+        if upper > 100 and max_pct <= 100:
+            upper = 100
+        if upper - max_pct < 3:
+            upper = round_up(upper + 3)
+            if upper > 100 and max_pct <= 100:
+                upper = 100
+        ax.set_ylim(0, upper)
+
+        return bars, colors, wrapped_labels
+    
+    # Create both histograms (now using class names on x-axis; legend removed)
+    bars1, colors1, labels1 = create_histogram(ax1, data1, title1)
+    bars2, colors2, labels2 = create_histogram(ax2, data2, title2)
+
+    # Tight layout without legend space adjustments
+    plt.tight_layout()
+    
+    plt.show()
+    plt.close()
+
+def display_park_info(region_name, image_width=160, max_width=1100):
+        """Display park information panel with logo + location map stacked and justified text.
+
+        Parameters
+        ----------
+        region_name : str
+                Name of the park (key used in parks_info and to derive asset filenames).
+        image_width : int, optional
+                Width (px) for both logo and location map images (default 160).
+        max_width : int, optional
+                Max width for the outer flex container (default 1100).
+
+        Returns
+        -------
+        IPython.display.HTML
+                HTML object containing the formatted park info panel.
+        """
+        import html as _html
+        # Retrieve descriptive text (fallback if missing)
+        park_text = parks_info.get(region_name, ["No descriptive information available for this park."])[0]
+        # Slug for file naming
+        slug = region_name.replace(" ", "_")
+        logo_path = f"images/logos/{slug}_logo.png"
+        location_path = f"images/maps/{slug}_location_3035.png"
+        # Graceful omission of missing assets
+        logo_tag = f"<img src='{logo_path}' alt='{_html.escape(region_name)} logo' style='width:{image_width}px; height:auto; display:block;'>" if os.path.exists(logo_path) else ""
+        location_tag = f"<img src='{location_path}' alt='{_html.escape(region_name)} location map' style='width:{image_width}px; height:auto; display:block;'>" if os.path.exists(location_path) else ""
+        escaped_body = _html.escape(park_text).replace("\n", "<br>")
+        escaped_title = _html.escape(region_name)
+        html_block = f"""
+<div style='display:flex; align-items:flex-start; gap:16px; max-width:{max_width}px;'>
+    <div style='flex:0 0 auto; display:flex; flex-direction:column; gap:10px;'>
+        {logo_tag}
+        {location_tag}
+    </div>
+    <div style='flex:1 1 auto; line-height:1.5; font-size:15px;'>
+        <h3 style='margin:0 0 12px 0; font-size:22px; font-weight:600;'>{escaped_title}</h3>
+        <div style='text-align:justify; text-justify:inter-word;'>
+            <p style='margin:0;'>{escaped_body}</p>
+        </div>
+    </div>
+</div>
+"""
+        return HTML(html_block)

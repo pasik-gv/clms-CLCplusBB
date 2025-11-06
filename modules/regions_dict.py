@@ -32,3 +32,8 @@ regions_dict = {
     'Wigierski National Park': [(54.03, 23.10), 11, 'Wigierski_National_Park'],
     'Wolinski National Park': [(53.91, 14.47), 11, 'Wolinski_National_Park']
 }
+
+parks_info = {'Swietokrzyski National Park': ["Swietokrzyski National Park is a National Park in Swietokrzyskie Voivodeship in central Poland. The Swietokrzyskie Mountains are the oldest in Poland. Elevated in three different tectonic periods, they spread out in the Malopolska Upland, between Pilica and the Vistula river. Their outlines are gentle and their heights are small, the highest peak is Lysica at 612 meters."
+"\n\n The history of efforts to protect this part of Poland dates back to the times before World War I. The first forest reserve was established in 1921, and expanded in subsequent years to eventually form the National Park in 1950. The area of today's Park is approximately 76 square kilometres, of which 72 km2 are forested. There are five strictly protected zones with a total area of over 17 km2."
+"\n\n The park is famous for its trees, of which 674 are regarded as monuments of nature and as such are under protection. Among them is a 270-year-old European silver fir measuring 51 meters, considered the tallest conifer in Poland. The park's fauna is represented by more than 4000 species of invertebrates and 210 species of vertebrae (including 187 protected). Some of the large mammals found in the park include the deer (whose silhouette appears in Park's logo), wild boar, beaver and fox. Much less common, making occasional appearances are Moose and Nyctereutes. "
+"Among many birds of prey nesting in the park are 4 species of owls: the Eurasian pygmy owl, Boreal owl, Long-eared owl and the rare and majestic Ural Owl."]}
