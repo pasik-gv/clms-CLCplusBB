@@ -5,7 +5,7 @@ import folium
 import branca.colormap as cm
 
 from modules.regions_dict import regions_dict
-from modules.utils import read_image, save_as_png
+from modules.utils import read_image
 
 def prepare_layer_to_map_discrete(rasters_dir, chosen_region, layer_dict, class_info,
                                   target_projection='4326', figure_size=(14, 14), dpi=300):
@@ -167,3 +167,54 @@ def display_map_discrete(rasters_dir, chosen_region, base_map, layer_dict, class
     map.get_root().html.add_child(folium.Element(title_html))
     
     return map
+
+def overlay_region_boundary(map_object, region_slug, vectors_dir='aoi_vectors', style=None):
+    """
+    Overlay a park boundary shapefile onto an existing Folium map.
+
+    Parameters
+    ----------
+    map_object : folium.Map
+        Existing map returned by display_map_discrete (or similar).
+    region_slug : str
+        Slug form of the region name (spaces replaced by underscores).
+    vectors_dir : str
+        Directory containing the boundary shapefiles.
+    style : dict or callable
+        Optional style dict or folium style_function callable for GeoJson.
+
+    Returns
+    -------
+    folium.Map
+        The same map_object with boundary overlay added (if found).
+    """
+    import glob
+    import geopandas as gpd
+    import folium
+
+    # Default style
+    if style is None:
+        style = lambda feature: {
+            'fillColor': 'transparent',
+            'color': 'black',
+            'weight': 3,
+            'fillOpacity': 0
+        }
+
+    # Glob pattern to allow variant filenames
+    pattern = os.path.join(vectors_dir, f"{region_slug}*.shp")
+    matches = glob.glob(pattern)
+    if not matches:
+        # No boundary found; return map unchanged
+        print(f"No boundary shapefile found for region slug '{region_slug}' in '{vectors_dir}'.")
+        return map_object
+
+    try:
+        gdf = gpd.read_file(matches[0])
+        folium.GeoJson(gdf, style_function=style).add_to(map_object)
+    except Exception:
+        # Fail silently if file unreadable
+        print("Error reading boundary shapefile:", matches[0])
+        pass
+
+    return map_object

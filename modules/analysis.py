@@ -1,158 +1,230 @@
 import numpy as np
 import rasterio
+import os
 
 from modules.utils import read_image
+from modules.regions_dict import regions_dict
 
 
-def get_boundary_length(raster_path, band_num=0, pixel_size=None, input_nodata=None, return_density=True):
-    """
-    Calculate the total boundary length (in kilometers) between all classes in a raster.
-    Optionally returns edge density expressed as meters per hectare (m/ha).
+def get_boundary_length(
+    rasters_dir,
+    chosen_region,
+    dataset_label='CLCplusBB',
+    target_projection='4326',
+    band_num=0,
+    pixel_size=None,
+    input_nodata=None,
+    return_density=True,
+    class_info=None
+):
+    """Calculate the total boundary length (km) and optionally edge density (m/ha) for a region raster.
+
+    The raster filename is derived automatically using the pattern:
+        ``{dataset_label}_{<region_label>}_{target_projection}.tif``
 
     Parameters
     ----------
-    raster_path : str
-        Path to the raster file.
-    band_num : int
-        The band number to use (default 0).
+    rasters_dir : str
+        Directory containing region rasters.
+    chosen_region : str
+        Human-readable region name (key in ``regions_dict``) OR directly the slug used in filenames.
+    dataset_label : str, default 'CLCplusBB'
+        Dataset label used in raster filenames.
+    target_projection : str, default '4326'
+        Projection code used in filename.
+    band_num : int, default 0
+        Zero-based band index to read (converted internally to 1-based for rasterio).
     pixel_size : float, optional
-        Length of one pixel edge in meters. If None, calculated from raster transform.
+        Pixel size in meters; if None it's inferred from the raster transform.
     input_nodata : int or list, optional
-        Value(s) to treat as nodata in input raster.
-    return_density : bool, optional
-        If True, also returns edge density (default True).
+        Value(s) to treat as nodata (reassigned to sentinel 255). Class 0 also treated as nodata.
+    return_density : bool, default True
+        If True, return tuple (boundary_length_km, edge_density_m_per_ha); otherwise (boundary_length_km, None).
+    class_info : dict, optional
+        Reserved for future use (kept for signature consistency with pairwise function); ignored.
 
     Returns
     -------
-    float or tuple
-        Total boundary length in kilometers, or (boundary_length_km, edge_density) if return_density is True (default).
+    tuple
+        (boundary_length_km, edge_density_m_per_ha or None)
     """
+    # Resolve region slug if human-readable name provided
+    if chosen_region in regions_dict:
+        region_label = regions_dict[chosen_region][2]
+    else:
+        region_label = chosen_region  # assume already slug
+
+    raster_path = os.path.join(
+        rasters_dir,
+        f"{dataset_label}_{region_label}_{target_projection}.tif"
+    )
+
+    if not os.path.exists(raster_path):
+        raise FileNotFoundError(f"Raster file does not exist: {raster_path}")
+
     with rasterio.open(raster_path) as src:
-        data = src.read(band_num + 1).copy()  # rasterio uses 1-based indexing
+        data = src.read(band_num + 1).copy()  # rasterio uses 1-based band indexing
         if pixel_size is None:
             pixel_size = abs(src.transform.a)
+
+    # Apply nodata sentinel
     if input_nodata is not None:
         mask = np.isin(data, input_nodata) if isinstance(input_nodata, list) else (data == input_nodata)
-        data[mask] = 255  # set nodata to a unique value
-    
-    # Also treat class 0 as nodata
-    data[data == 0] = 255
+        data[mask] = 255
+    data[data == 0] = 255  # treat class 0 as nodata
 
+    # Count boundaries (4-neighborhood: horizontal + vertical adjacencies)
     boundary_count = 0
     boundary_count += np.sum((data[:, :-1] != data[:, 1:]) & (data[:, :-1] != 255) & (data[:, 1:] != 255))
     boundary_count += np.sum((data[:-1, :] != data[1:, :]) & (data[:-1, :] != 255) & (data[1:, :] != 255))
 
     boundary_length_m = boundary_count * pixel_size
-    boundary_length_km = boundary_length_m / 1000  # Convert meters to kilometers
+    boundary_length_km = boundary_length_m / 1000.0
 
     valid_pixels = np.sum(data != 255)
     pixel_area = pixel_size ** 2
-    total_area = valid_pixels * pixel_area
-    # Edge density in meters per hectare (m/ha)
-    # total_area is in m². 1 hectare = 10,000 m²
-    edge_density_m_per_ha = (boundary_length_m / (total_area / 10000.0)) if total_area > 0 else 0.0
+    total_area_m2 = valid_pixels * pixel_area
+
+    if total_area_m2 > 0:
+        edge_density_m_per_ha = boundary_length_m / (total_area_m2 / 10000.0)
+    else:
+        edge_density_m_per_ha = 0.0
 
     if return_density:
         return round(boundary_length_km, 3), round(edge_density_m_per_ha, 6)
     else:
         return round(boundary_length_km, 3), None
 
-def get_boundary_length_per_class_pair(raster_path, band_num=0, pixel_size=None, input_nodata=None, return_density=True, class_info=None):
-    """
-    Calculate the boundary length (in kilometers) for each pair of classes in a categorical raster.
-    Optionally returns edge density per class pair in meters per hectare (m/ha).
+def get_boundary_length_per_class_pair(
+    rasters_dir,
+    chosen_region,
+    dataset_label='CLCplusBB',
+    target_projection='4326',
+    band_num=0,
+    pixel_size=None,
+    input_nodata=None,
+    return_density=True,
+    class_info=None
+):
+    """Calculate pairwise boundary lengths (km) and optionally edge densities (m/ha) between land cover classes.
+
+    The raster file is derived automatically from the directory and region name using the naming pattern:
+        ``{dataset_label}_{<region_label>}_{target_projection}.tif``
 
     Parameters
     ----------
-    raster_path : str
-        Path to the raster file.
-    band_num : int
-        The band number to use (default 0).
+    rasters_dir : str
+        Directory containing the raster files.
+    chosen_region : str
+        Either the human-readable region name (key in ``regions_dict``) OR directly the slug used in filenames.
+    dataset_label : str, default 'CLCplusBB'
+        Dataset label used in the file naming pattern.
+    target_projection : str, default '4326'
+        Projection code appended in the filename.
+    band_num : int, default 0
+        Zero-based band index (converted internally to rasterio 1-based indexing when reading).
     pixel_size : float, optional
-        Length of one pixel edge in meters. If None, calculated from raster transform.
+        Pixel size in meters. If None, inferred from the raster transform.
     input_nodata : int or list, optional
-        Value(s) to treat as nodata in input raster.
-    return_density : bool, optional
-        If True, also returns edge density per class pair (default True).
+        Value(s) to treat as nodata; class 0 is also treated as nodata.
+    return_density : bool, default True
+        If True, include edge density (m/ha) in the output dictionaries.
     class_info : dict, optional
-        Dictionary mapping class IDs to {"name": str, "color": str}.
-        If provided, returns results using class names instead of numbers.
+        Mapping of class ids to metadata; if provided, result keys use class names.
 
     Returns
     -------
     dict
-        {(class_a, class_b): boundary_length_km, ...} if class_info is None
-        {(class_name_a, class_name_b): boundary_length_km, ...} if class_info is provided
-        If return_density is True: values are tuples (boundary_length_km, edge_density)
+        {(class_a, class_b): {'length_km': float, 'edge_density_m_per_ha': float}} when return_density is True.
+        {(class_a, class_b): {'length_km': float}} when return_density is False.
+        Class labels replaced by names if class_info provided. Boundary length is always reported FIRST as
+        'length_km'; edge density SECOND as 'edge_density_m_per_ha'.
     """
+
+    if chosen_region in regions_dict:
+        region_label = regions_dict[chosen_region][2]
+    else:
+        # Treat chosen_region as already being the slug
+        region_label = chosen_region
+    raster_path = os.path.join(
+        rasters_dir,
+        f"{dataset_label}_{region_label}_{target_projection}.tif"
+    )
+
+    if not os.path.exists(raster_path):
+        raise FileNotFoundError(f"Raster file does not exist: {raster_path}")
+
     with rasterio.open(raster_path) as src:
-        data = src.read(band_num + 1).copy()  # rasterio uses 1-based indexing
-        
+        data = src.read(band_num + 1).copy()
         if pixel_size is None:
             pixel_size = abs(src.transform.a)
-        
+
+    # Apply nodata handling
     if input_nodata is not None:
         mask = np.isin(data, input_nodata) if isinstance(input_nodata, list) else (data == input_nodata)
-        data[mask] = 255  # set nodata to a unique value
-    
-    # Also treat class 0 as nodata
-    data[data == 0] = 255
+        data[mask] = 255
+    data[data == 0] = 255  # treat class 0 as nodata sentinel
 
     boundary_lengths = {}
 
-    # Right neighbor
+    # Horizontal boundaries (right neighbor comparisons)
     right_a = data[:, :-1]
     right_b = data[:, 1:]
     right_mask = (right_a != 255) & (right_b != 255) & (right_a != right_b)
-    pairs_right = np.stack([right_a[right_mask], right_b[right_mask]], axis=1)
-    for a, b in pairs_right:
-        key = tuple(sorted((int(a), int(b))))
-        boundary_lengths[key] = boundary_lengths.get(key, 0) + 1
+    if np.any(right_mask):
+        pairs_right = np.stack([right_a[right_mask], right_b[right_mask]], axis=1)
+        for a, b in pairs_right:
+            key = tuple(sorted((int(a), int(b))))
+            boundary_lengths[key] = boundary_lengths.get(key, 0) + 1
 
-    # Bottom neighbor
+    # Vertical boundaries (bottom neighbor comparisons)
     bottom_a = data[:-1, :]
     bottom_b = data[1:, :]
     bottom_mask = (bottom_a != 255) & (bottom_b != 255) & (bottom_a != bottom_b)
-    pairs_bottom = np.stack([bottom_a[bottom_mask], bottom_b[bottom_mask]], axis=1)
-    for a, b in pairs_bottom:
-        key = tuple(sorted((int(a), int(b))))
-        boundary_lengths[key] = boundary_lengths.get(key, 0) + 1
+    if np.any(bottom_mask):
+        pairs_bottom = np.stack([bottom_a[bottom_mask], bottom_b[bottom_mask]], axis=1)
+        for a, b in pairs_bottom:
+            key = tuple(sorted((int(a), int(b))))
+            boundary_lengths[key] = boundary_lengths.get(key, 0) + 1
 
     valid_pixels = np.sum(data != 255)
     pixel_area = pixel_size ** 2
     total_area = valid_pixels * pixel_area
 
-    # Convert to actual lengths and round to 2 decimal places
+    # Convert counts to meters
     for key in boundary_lengths:
         boundary_lengths[key] *= pixel_size
 
-    # If class_info is provided, convert class numbers to names
+    # Replace class ids with names if requested
     if class_info is not None:
-        boundary_lengths_named = {}
+        named_lengths = {}
         for (class_a, class_b), length in boundary_lengths.items():
             name_a = class_info.get(class_a, {}).get('name', f'Class {class_a}')
             name_b = class_info.get(class_b, {}).get('name', f'Class {class_b}')
             key_named = tuple(sorted((name_a, name_b)))
-            boundary_lengths_named[key_named] = length
-        boundary_lengths = boundary_lengths_named
+            named_lengths[key_named] = length
+        boundary_lengths = named_lengths
 
+    results = {}
     if return_density:
-        for key in boundary_lengths:
-            length_m = boundary_lengths[key]
-            length_km = length_m / 1000  # Convert meters to kilometers
+        for key, length_m in boundary_lengths.items():
+            length_km = length_m / 1000.0
             edge_density_m_per_ha = (length_m / (total_area / 10000.0)) if total_area > 0 else 0.0
-            boundary_lengths[key] = (round(length_km, 3), round(edge_density_m_per_ha, 6))
-            # print(f"Class pair {key}: Boundary length = {length_km:.3f} km, Edge density = {edge_density_m_per_ha:.6f} m/ha")
+            results[key] = {
+                'length_km': round(length_km, 3),
+                'edge_density_m_per_ha': round(edge_density_m_per_ha, 3)
+            }
     else:
-        for key in boundary_lengths:
-            length_km = boundary_lengths[key] / 1000  # Convert meters to kilometers
-            boundary_lengths[key] = round(length_km, 3)
-            # print(f"Class pair {key}: Boundary length = {length_km:.3f} km")
+        for key, length_m in boundary_lengths.items():
+            length_km = length_m / 1000.0
+            results[key] = {
+                'length_km': round(length_km, 3)
+            }
 
-    return boundary_lengths
+    return results
 
 def calculate_class_areas(rasters_dir, chosen_region, dataset_label='CLCplusBB', 
-                         target_projection='4326', class_info=None, nodata_value=0):
+                         target_projection='3035', class_info=None, nodata_value=0):
     """
     Calculate the area of each CLC class and the overall area for a specified region.
     

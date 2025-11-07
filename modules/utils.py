@@ -30,27 +30,33 @@ CLC_CLASS_INFO = {
 }
 
 def visualize_class_pair_boundaries(class_pair_results, class_info=None, use_names=True, metric='length', figsize=(12, 10)):
-    """
-    Visualize class pair boundary results as a confusion matrix-style heatmap.
-    
+    """Visualize class pair boundary results as a confusion matrix-style heatmap.
+
+    Accepts output from `get_boundary_length_per_class_pair` after its refactor to
+    return dictionaries per pair: {"length_km": float, "edge_density_m_per_ha": float}.
+    Backward compatibility: still supports older tuple outputs (length_km, edge_density_m_per_ha)
+    and legacy scalar-only length values.
+
     Parameters
     ----------
     class_pair_results : dict
-        Results from get_boundary_length_per_class_pair()
-    class_info : dict
-        Dictionary mapping class IDs to {"name": str, "color": str}.
-    use_names : bool
-        If True, use descriptive class names; if False, use class IDs (default True)
-    metric : str
-        Which metric to display: 'length', 'density', or 'both' (default 'length')
-        If 'both', shows length and density side by side
-    figsize : tuple
-        Figure size for the plot (default (12, 10) for single, automatically adjusted for 'both')
-        
+        Mapping of (class_a, class_b) -> result where result is one of:
+          - dict with keys 'length_km' and 'edge_density_m_per_ha'
+          - tuple(length_km, edge_density_m_per_ha)
+          - single numeric (interpreted as length_km only)
+    class_info : dict, optional
+        Mapping class_id -> {"name": str, "color": str} for axis labeling.
+    use_names : bool, default True
+        Use descriptive names (from class_info) instead of numeric IDs for axes.
+    metric : str, default 'length'
+        One of 'length', 'density', or 'both'. If 'both', shows length and density side-by-side.
+    figsize : tuple, default (12, 10)
+        Base figure size; doubled horizontally if metric == 'both'.
+
     Returns
     -------
-    matplotlib.figure.Figure, matplotlib.axes.Axes
-        The figure and axes objects (axes will be array if metric='both')
+    (Figure, Axes or list[Axes])
+        Matplotlib Figure and the Axes object(s). If metric == 'both', returns list of two Axes.
     """
     
     # Extract all unique classes
@@ -72,7 +78,7 @@ def visualize_class_pair_boundaries(class_pair_results, class_info=None, use_nam
         return wrapped
     
     if use_names and class_info is not None:
-        labels = [class_info.get(class_id, {}).get('name', f'Class {class_id}') for class_id in all_classes]
+        labels = [class_info.get(class_id, {}).get('name', f' {class_id}') for class_id in all_classes]
         # Wrap long names for better display
         labels = [wrap_text(label) for label in labels]
     else:
@@ -95,45 +101,50 @@ def visualize_class_pair_boundaries(class_pair_results, class_info=None, use_nam
     for i, current_metric in enumerate(metrics):
         # Create matrix for current metric
         matrix = np.zeros((len(all_classes), len(all_classes)))
-        
-        # Fill matrix with boundary data
+
+        # Fill matrix with boundary data using flexible result parsing
         for (class_a, class_b), result in class_pair_results.items():
-            if isinstance(result, tuple):
-                # Has both length and density
+            if isinstance(result, dict):
+                if current_metric == 'length':
+                    value = result.get('length_km', np.nan)
+                else:
+                    # Support both new key and possible legacy key naming
+                    value = result.get('edge_density_m_per_ha', result.get('edge_density', np.nan))
+            elif isinstance(result, tuple) and len(result) >= 2:
                 value = result[0] if current_metric == 'length' else result[1]
             else:
-                # Only has length
-                value = result
-                
+                # Scalar fallback (assume length only)
+                value = result if current_metric == 'length' else np.nan
+
             idx_a = all_classes.index(class_a)
             idx_b = all_classes.index(class_b)
-            
+
             # Fill both symmetric positions
             matrix[idx_a, idx_b] = value
             matrix[idx_b, idx_a] = value
-        
+
         # Create DataFrame for easier plotting
         df = pd.DataFrame(matrix, index=labels, columns=labels)
-        
-        # Create heatmap with viridis colormap
+
+        # Choose formatting precision based on metric
+        fmt = '.3f' if current_metric == 'length' else '.6f'
+
+        # Create heatmap
         current_ax = axes[i] if show_both else ax
         sns.heatmap(
             df,
             annot=True,
-            fmt='.3f' if current_metric == 'length' else '.6f',
+            fmt=fmt,
             cmap='viridis',
             cbar_kws={'label': 'Boundary Length (km)' if current_metric == 'length' else 'Edge Density (m/ha)'},
             ax=current_ax
         )
 
         # Set labels and title with units
-        if current_metric == 'length':
-            title = "Class Pair Boundary Lengths [km]"
-        else:
-            title = "Class Pair Edge Densities [m/ha]"
+        title = "Class Pair Boundary Lengths [km]" if current_metric == 'length' else "Class Pair Edge Densities [m/ha]"
         current_ax.set_title(title, fontsize=16, pad=20)
 
-        # Rotate labels for better readability with proper alignment for wrapped text
+        # Rotate labels for readability
         current_ax.tick_params(axis='x', rotation=45, labelrotation=45)
         current_ax.tick_params(axis='y', rotation=0)
     
@@ -141,46 +152,30 @@ def visualize_class_pair_boundaries(class_pair_results, class_info=None, use_nam
     plt.show()
 
 def choose_region(regions_dict):
-    '''
-    Generate a dropdown menu for selecting a region.
-    
-    Input:
-    - `regions_dict (dict)`: dictionary with region names as keys and corresponding descriptions as values.
-    
-    Output:
-    - chosen region (list with one element)
-    '''
+    """Display a region selection dropdown and return the widget itself.
 
-    # define a dropdown menu for selecting a region
-    region_dropdown = widgets.Dropdown(
+    This avoids capturing only the initial default value. Read the current
+    selection via `dropdown.value` in subsequent cells after user interaction.
+
+    Parameters
+    ----------
+    regions_dict : dict
+        Dictionary whose keys are human-readable region names.
+
+    Returns
+    -------
+    ipywidgets.Dropdown
+        The dropdown widget; use `widget.value` to access the selected region.
+    """
+    dropdown = widgets.Dropdown(
         options=list(regions_dict.keys()),
         value=list(regions_dict.keys())[0],
         description='Region:'
     )
-
-    # define a variable to store the chosen value
-    chosen_region = [region_dropdown.value]
-
-    # define a callback function to update the variable when the dropdown value changes
-    def on_region_change(change):
-        # global chosen_region
-        chosen_region[0] = change['new']
-
-    # attach the callback function to the dropdown menu
-    region_dropdown.observe(on_region_change, names='value')
-
-    # display the dropdown menu
-    display(region_dropdown)
-    
-    return chosen_region
+    display(dropdown)
+    return dropdown
 
 def list_filepaths(dir, patterns_in, patterns_out, include_all_patterns=True, print_warning=True):
-
-
-
-
-
-
     '''
     List of filepaths in a dir that contain patterns in patterns_in, and do not contain patterns in patterns_out.
     
@@ -213,69 +208,99 @@ def list_filepaths(dir, patterns_in, patterns_out, include_all_patterns=True, pr
         
     return out
 
-def read_image(rasters_dir, chosen_region, dataset_label, target_projection = '4326', mask_below=None):    
-    '''
-    Read raster into an array.
-    
-    Input:
-    - `rasters_dir (str)`: path to the directory with rasters
-    - `chosen_region (str)`: name of the region to be displayed.
-            Used to identify the right region images in `rasters_dir`. 
-    - `dataset_label (str)`: label of the dataset to be displayed 
-            (`'IMD'` for imperviousness, `'LSM'` for land surface temperature).
-            Used to identify the dataset in `rasters_dir`.
-    - `mask_below (float)`: mask values below this threshold. 
-            If `None`, no masking is applied. Default is `None`.
-    - `target_projection (str)`: target projection of the raster. Default is `'4326'`.
-        
-    Output:
-    - dictionary with the following keys:
-        - `'array' (numpy array)`: array with the raster values
-        - `'bounds' (list)`: bounds of the raster, format: `[[bottom, left], [top, right]]`
-        - `'min_value' (float)`: minimum value of the raster
-        - `'max_value' (float)`: maximum value of the raster
-        - `'crs' (str)`: coordinate reference system of the raster
-        - `'mask' (numpy array)`: array with the mask of the values below the threshold (if `mask_below` is not `None`)
-    '''
+def read_image(rasters_dir, chosen_region, dataset_label, target_projection='4326', mask_below=None):
+    """
+    Read a raster into an array for the specified region and dataset.
 
-    # get the region label from the regions_dict
-    region_label = regions_dict[chosen_region][2]
-    
-    # get the path to the right raster
-    path_to_dataset = list_filepaths(rasters_dir, 
-        [dataset_label, region_label,  '.tif', target_projection], ['.aux'])[0]
+    Accepts either a human-readable region name (e.g. "Swietokrzyski National Park")
+    or a slug (e.g. "Swietokrzyski_National_Park"). Tries both slug and human forms
+    when locating the raster file.
 
-    # read the dataset into array
+    Parameters
+    ----------
+    rasters_dir : str
+        Directory containing raster files.
+    chosen_region : str
+        Region name (with spaces) or slug (underscores).
+    dataset_label : str
+        Dataset identifier included in filename (e.g. 'CLCplusBB').
+    target_projection : str, default '4326'
+        Projection string expected in the raster filename.
+    mask_below : float, optional
+        If provided, values below this threshold are set to NaN.
+
+    Returns
+    -------
+    dict
+        {
+          'array': np.ndarray (float32, nodata -> NaN, optional masking applied),
+          'bounds': [[bottom, left], [top, right]],
+          'min_value': float,
+          'max_value': float,
+          'crs': str,
+          'mask': np.ndarray (indices masked)  # only if mask_below provided
+        }
+
+    Raises
+    ------
+    FileNotFoundError
+        If no matching raster file is found after all attempts.
+    """
+    # Determine slug/human variants
+    if '_' in chosen_region and ' ' not in chosen_region:
+        slug = chosen_region.strip()
+        human = slug.replace('_', ' ')
+    else:
+        human = chosen_region.strip()
+        slug = human.replace(' ', '_')
+
+    # Order of filename fragments to try
+    region_labels_to_try = [slug, human]
+
+    path_to_dataset = None
+    for region_label in region_labels_to_try:
+        try:
+            paths = list_filepaths(
+                rasters_dir,
+                [dataset_label, region_label, '.tif', target_projection],
+                ['.aux'],
+                include_all_patterns=True,
+                print_warning=False
+            )
+            if paths:
+                path_to_dataset = paths[0]
+                break
+        except Exception:
+            continue
+
+    if path_to_dataset is None:
+        raise FileNotFoundError(
+            f"No raster found in '{rasters_dir}' for region '{chosen_region}' "
+            f"(tried: {region_labels_to_try}) with dataset '{dataset_label}' and projection '{target_projection}'."
+        )
+
     with rasterio.open(path_to_dataset) as src:
         arr = src.read(1).astype(np.float32)
-        
-        # mask nodata values
         arr[arr == src.nodata] = np.nan
-        
-        # get CRS, bounds, min and max values
         src_crs = src.crs.to_string().upper()
         bounds = [[src.bounds.bottom, src.bounds.left], [src.bounds.top, src.bounds.right]]
         arr_min = np.nanmin(arr)
         arr_max = np.nanmax(arr)
-        
-        # mask values below the threshold if requested
+
         if mask_below is not None:
-            mask = np.where(arr<mask_below)
+            mask = np.where(arr < mask_below)
             arr[mask] = np.nan
-        
-    # return the dictionary with the raster properties
-    output_dict = {
-        'array': arr, 
-        'bounds': bounds, 
-        'min_value': arr_min, 
-        'max_value': arr_max, 
+
+    out = {
+        'array': arr,
+        'bounds': bounds,
+        'min_value': arr_min,
+        'max_value': arr_max,
         'crs': src_crs
     }
-    
     if mask_below is not None:
-        output_dict['mask'] = mask
-    
-    return output_dict
+        out['mask'] = mask
+    return out
 
 def save_as_png(arr, path, color_code='viridis', clim=None, reverse=False):
     '''
@@ -539,47 +564,73 @@ def plot_dual_histograms(rasters_dir1, rasters_dir2, chosen_region, dataset_labe
     plt.show()
     plt.close()
 
-def display_park_info(region_name, image_width=160, max_width=1100):
-        """Display park information panel with logo + location map stacked and justified text.
+def display_park_info(region_name_or_slug, image_width=160, max_width=1100):
+    """Display park info panel with logo + location map and descriptive text.
 
-        Parameters
-        ----------
-        region_name : str
-                Name of the park (key used in parks_info and to derive asset filenames).
-        image_width : int, optional
-                Width (px) for both logo and location map images (default 160).
-        max_width : int, optional
-                Max width for the outer flex container (default 1100).
+    Accepts either a human-readable park name (key in parks_info) OR a slug
+    (underscored). If a slug is provided, it attempts to convert it back to
+    the human-readable form for description lookup while retaining the slug
+    for asset file paths.
 
-        Returns
-        -------
-        IPython.display.HTML
-                HTML object containing the formatted park info panel.
-        """
-        import html as _html
-        # Retrieve descriptive text (fallback if missing)
-        park_text = parks_info.get(region_name, ["No descriptive information available for this park."])[0]
-        # Slug for file naming
-        slug = region_name.replace(" ", "_")
-        logo_path = f"images/logos/{slug}_logo.png"
-        location_path = f"images/maps/{slug}_location_3035.png"
-        # Graceful omission of missing assets
-        logo_tag = f"<img src='{logo_path}' alt='{_html.escape(region_name)} logo' style='width:{image_width}px; height:auto; display:block;'>" if os.path.exists(logo_path) else ""
-        location_tag = f"<img src='{location_path}' alt='{_html.escape(region_name)} location map' style='width:{image_width}px; height:auto; display:block;'>" if os.path.exists(location_path) else ""
-        escaped_body = _html.escape(park_text).replace("\n", "<br>")
-        escaped_title = _html.escape(region_name)
-        html_block = f"""
+    Parameters
+    ----------
+    region_name_or_slug : str
+        Human-readable park name (e.g. "Swietokrzyski National Park") or slug (e.g. "Swietokrzyski_National_Park").
+    image_width : int, default 160
+        Width (px) for the logo and location map images.
+    max_width : int, default 1100
+        Max overall panel width.
+
+    Returns
+    -------
+    IPython.display.HTML
+        Rendered HTML panel.
+    """
+    import html as _html
+
+    # Detect slug vs human-readable name
+    if region_name_or_slug in parks_info:
+        human_name = region_name_or_slug
+        slug = region_name_or_slug.replace(" ", "_")
+    else:
+        # Treat input as slug; attempt to recover human name by replacing underscores
+        slug = region_name_or_slug
+        candidate = slug.replace("_", " ")
+        print("candidate:   ", candidate)
+        human_name = candidate if candidate in parks_info else slug  # fallback to slug
+
+    # Description text (fallback if not found)
+    park_text = parks_info.get(human_name, ["No descriptive information available for this park."])[0]
+
+    # Asset paths based on slug
+    logo_path = f"images/logos/{slug}_logo.png"
+    location_path = f"images/maps/{slug}_location_3035.png"
+
+    # Build <img> tags only if files exist
+    logo_tag = (
+        f"<img src='{logo_path}' alt='{_html.escape(human_name)} logo' style='width:{image_width}px; height:auto; display:block;'>"
+        if os.path.exists(logo_path) else ""
+    )
+    location_tag = (
+        f"<img src='{location_path}' alt='{_html.escape(human_name)} location map' style='width:{image_width}px; height:auto; display:block;'>"
+        if os.path.exists(location_path) else ""
+    )
+
+    escaped_body = _html.escape(park_text).replace("\n", "<br>")
+    escaped_title = _html.escape(human_name)
+
+    html_block = f"""
 <div style='display:flex; align-items:flex-start; gap:16px; max-width:{max_width}px;'>
-    <div style='flex:0 0 auto; display:flex; flex-direction:column; gap:10px;'>
-        {logo_tag}
-        {location_tag}
+  <div style='flex:0 0 auto; display:flex; flex-direction:column; gap:10px;'>
+    {logo_tag}
+    {location_tag}
+  </div>
+  <div style='flex:1 1 auto; line-height:1.5; font-size:15px;'>
+    <h3 style='margin:0 0 12px 0; font-size:22px; font-weight:600;'>{escaped_title}</h3>
+    <div style='text-align:justify; text-justify:inter-word;'>
+      <p style='margin:0;'>{escaped_body}</p>
     </div>
-    <div style='flex:1 1 auto; line-height:1.5; font-size:15px;'>
-        <h3 style='margin:0 0 12px 0; font-size:22px; font-weight:600;'>{escaped_title}</h3>
-        <div style='text-align:justify; text-justify:inter-word;'>
-            <p style='margin:0;'>{escaped_body}</p>
-        </div>
-    </div>
+  </div>
 </div>
 """
-        return HTML(html_block)
+    return HTML(html_block)
