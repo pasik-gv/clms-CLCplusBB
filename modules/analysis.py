@@ -1,3 +1,4 @@
+from glob import glob
 import numpy as np
 import rasterio
 import os
@@ -27,7 +28,7 @@ def get_boundary_length(
     rasters_dir : str
         Directory containing region rasters.
     chosen_region : str
-        Human-readable region name (key in ``regions_dict``) OR directly the slug used in filenames.
+        Chosen region slug used to construct filepaths.
     dataset_label : str, default 'CLCplusBB'
         Dataset label used in raster filenames.
     target_projection : str, default '4326'
@@ -48,20 +49,20 @@ def get_boundary_length(
     tuple
         (boundary_length_km, edge_density_m_per_ha or None)
     """
-    # Resolve region slug if human-readable name provided
-    if chosen_region in regions_dict:
-        region_label = regions_dict[chosen_region][2]
-    else:
-        region_label = chosen_region  # assume already slug
 
-    raster_path = os.path.join(
+    # Wildcard pattern allows extra suffix after projection
+    pattern = os.path.join(
         rasters_dir,
-        f"{dataset_label}_{region_label}_{target_projection}.tif"
+        f"{dataset_label}_{chosen_region}_{target_projection}*.tif"
     )
-
-    if not os.path.exists(raster_path):
-        raise FileNotFoundError(f"Raster file does not exist: {raster_path}")
-
+    matches = glob(pattern)
+    if not matches:
+        raise FileNotFoundError(f"No raster matched pattern: {pattern}")
+    if len(matches) > 1:
+        # Pick first or raise; here we pick first and warn
+        print(f"Warning: multiple rasters matched; using first: {matches[0]}")
+    raster_path = matches[0]
+    
     with rasterio.open(raster_path) as src:
         data = src.read(band_num + 1).copy()  # rasterio uses 1-based band indexing
         if pixel_size is None:
@@ -350,28 +351,35 @@ def calculate_class_areas(rasters_dir, chosen_region, dataset_label='CLCplusBB',
     
     return result
 
-def print_class_areas(area_results):
+def print_class_areas(area_results, header=None):
     """
     Print a formatted summary of class area calculations.
-    
+
     Parameters
     ----------
     area_results : dict
-        Results dictionary from calculate_class_areas function.
+        Results dictionary returned by calculate_class_areas().
+    header : str, optional
+        If provided, printed as a title above the table.
     """
-    # Print area statistics
-    print(f"Land Cover Area Analysis")
-    print("-" * 35)
-    print(f"Region: {area_results['region']}")
+    print("Area Statistics")
+    print("-" * 15)
+
+    if header:
+        print(f"Region: {header}")
+    else:
+        print(f"Region: {area_results['region']}")
     print(f"Total area: {area_results['total_area_ha']:.2f} ha")
     print()
 
     print(f"{'Class ID':<8} {'Class Name':<45} {'Area (ha)':<12} {'Area (%)':<10}")
     print("-" * 70)
 
-    # Sort by area (largest first)
-    sorted_classes = sorted(area_results['class_areas_ha'].items(), 
-                           key=lambda x: x[1], reverse=True)
+    sorted_classes = sorted(
+        area_results['class_areas_ha'].items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
 
     for class_id, area_ha in sorted_classes:
         class_name = area_results['class_names'][class_id]
@@ -380,3 +388,4 @@ def print_class_areas(area_results):
 
     print("-" * 70)
     print(f"{'Total':<54} {area_results['total_area_ha']:<12.2f} {'100.0':<10}")
+
