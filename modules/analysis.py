@@ -68,7 +68,7 @@ def get_boundary_length(
         if pixel_size is None:
             pixel_size = abs(src.transform.a)
 
-    # Apply nodata sentinel
+    # Apply nodata
     if input_nodata is not None:
         mask = np.isin(data, input_nodata) if isinstance(input_nodata, list) else (data == input_nodata)
         data[mask] = 255
@@ -92,7 +92,7 @@ def get_boundary_length(
         edge_density_m_per_ha = 0.0
 
     if return_density:
-        return round(boundary_length_km, 3), round(edge_density_m_per_ha, 6)
+        return round(boundary_length_km, 3), round(edge_density_m_per_ha, 3)
     else:
         return round(boundary_length_km, 3), None
 
@@ -209,15 +209,15 @@ def get_boundary_length_per_class_pair(
     results = {}
     if return_density:
         for key, length_m in boundary_lengths.items():
-            length_km = length_m / 1000.0
-            edge_density_m_per_ha = (length_m / (total_area / 10000.0)) if total_area > 0 else 0.0
+            length_km = float(length_m / 1000.0)
+            edge_density_m_per_ha = float(length_m / (total_area / 10000.0)) if total_area > 0 else 0.0
             results[key] = {
                 'length_km': round(length_km, 3),
                 'edge_density_m_per_ha': round(edge_density_m_per_ha, 3)
             }
     else:
         for key, length_m in boundary_lengths.items():
-            length_km = length_m / 1000.0
+            length_km = float(length_m / 1000.0)
             results[key] = {
                 'length_km': round(length_km, 3)
             }

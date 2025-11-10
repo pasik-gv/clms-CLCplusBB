@@ -127,7 +127,7 @@ def visualize_class_pair_boundaries(class_pair_results, class_info=None, use_nam
         df = pd.DataFrame(matrix, index=labels, columns=labels)
 
         # Choose formatting precision based on metric
-        fmt = '.3f' if current_metric == 'length' else '.6f'
+        fmt = '.3f'
 
         # Create heatmap
         current_ax = axes[i] if show_both else ax
