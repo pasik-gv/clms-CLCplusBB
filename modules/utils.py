@@ -564,55 +564,42 @@ def plot_dual_histograms(rasters_dir1, rasters_dir2, chosen_region, dataset_labe
     plt.show()
     plt.close()
 
-def display_park_info(region_name_or_slug, image_width=160, max_width=1100):
-    """Display park info panel with logo + location map and descriptive text.
-
-    Accepts either a human-readable park name (key in parks_info) OR a slug
-    (underscored). If a slug is provided, it attempts to convert it back to
-    the human-readable form for description lookup while retaining the slug
-    for asset file paths.
+def display_park_info(region_slug, image_width=160, max_width=1100):
+    """
+    Display park info panel (logo + location map + description) for a park slug.
+    Only accepts a slug (underscores, no spaces).
 
     Parameters
     ----------
-    region_name_or_slug : str
-        Human-readable park name (e.g. "Swietokrzyski National Park") or slug (e.g. "Swietokrzyski_National_Park").
-    image_width : int, default 160
-        Width (px) for the logo and location map images.
-    max_width : int, default 1100
-        Max overall panel width.
-
-    Returns
-    -------
-    IPython.display.HTML
-        Rendered HTML panel.
+    region_slug : str
+        Slug, e.g. "Swietokrzyski_National_Park".
+    image_width : int
+    max_width : int
     """
     import html as _html
 
-    # Detect slug vs human-readable name
-    if region_name_or_slug in parks_info:
-        human_name = region_name_or_slug
-        slug = region_name_or_slug.replace(" ", "_")
-    else:
-        # Treat input as slug; attempt to recover human name by replacing underscores
-        slug = region_name_or_slug
-        candidate = slug.replace("_", " ")
-        print("candidate:   ", candidate)
-        human_name = candidate if candidate in parks_info else slug  # fallback to slug
+    # Enforce slug input; normalize any accidental spaces
+    slug = region_slug.strip().replace(" ", "_")
 
-    # Description text (fallback if not found)
+    # Derive human-readable name
+    human_name = slug.replace("_", " ")
+
+    # Description (fallback if not found)
     park_text = parks_info.get(human_name, ["No descriptive information available for this park."])[0]
 
     # Asset paths based on slug
     logo_path = f"images/logos/{slug}_logo.png"
     location_path = f"images/maps/{slug}_location_3035.png"
 
-    # Build <img> tags only if files exist
+    # Image tags only if files exist
     logo_tag = (
-        f"<img src='{logo_path}' alt='{_html.escape(human_name)} logo' style='width:{image_width}px; height:auto; display:block;'>"
+        f"<img src='{logo_path}' alt='{_html.escape(human_name)} logo' "
+        f"style='width:{image_width}px; height:auto; display:block;'>"
         if os.path.exists(logo_path) else ""
     )
     location_tag = (
-        f"<img src='{location_path}' alt='{_html.escape(human_name)} location map' style='width:{image_width}px; height:auto; display:block;'>"
+        f"<img src='{location_path}' alt='{_html.escape(human_name)} location map' "
+        f"style='width:{image_width}px; height:auto; display:block;'>"
         if os.path.exists(location_path) else ""
     )
 
