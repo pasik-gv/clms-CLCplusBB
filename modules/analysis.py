@@ -110,14 +110,14 @@ def get_boundary_length_per_class_pair(
     """Calculate pairwise boundary lengths (km) and optionally edge densities (m/ha) between land cover classes.
 
     The raster file is derived automatically from the directory and region name using the naming pattern:
-        ``{dataset_label}_{<region_label>}_{target_projection}.tif``
+        {dataset_label}_{<region_label>}_{target_projection}*.tif
 
     Parameters
     ----------
     rasters_dir : str
         Directory containing the raster files.
     chosen_region : str
-        Either the human-readable region name (key in ``regions_dict``) OR directly the slug used in filenames.
+        Either the human-readable region name (key in regions_dict) OR directly the slug used in filenames.
     dataset_label : str, default 'CLCplusBB'
         Dataset label used in the file naming pattern.
     target_projection : str, default '4326'
@@ -138,37 +138,36 @@ def get_boundary_length_per_class_pair(
     dict
         {(class_a, class_b): {'length_km': float, 'edge_density_m_per_ha': float}} when return_density is True.
         {(class_a, class_b): {'length_km': float}} when return_density is False.
-        Class labels replaced by names if class_info provided. Boundary length is always reported FIRST as
-        'length_km'; edge density SECOND as 'edge_density_m_per_ha'.
+        Class labels replaced by names if class_info provided. Boundary length reported as 'length_km'; edge density as 'edge_density_m_per_ha'.
     """
-
     if chosen_region in regions_dict:
         region_label = regions_dict[chosen_region][2]
     else:
-        # Treat chosen_region as already being the slug
         region_label = chosen_region
-    raster_path = os.path.join(
-        rasters_dir,
-        f"{dataset_label}_{region_label}_{target_projection}.tif"
-    )
 
-    if not os.path.exists(raster_path):
-        raise FileNotFoundError(f"Raster file does not exist: {raster_path}")
+    pattern = os.path.join(
+        rasters_dir,
+        f"{dataset_label}_{region_label}_{target_projection}*.tif"
+    )
+    matches = glob(pattern)
+    if not matches:
+        raise FileNotFoundError(f"No raster matched pattern: {pattern}")
+    if len(matches) > 1:
+        print(f"Warning: multiple rasters matched; using first:\n  " + "\n  ".join(matches))
+    raster_path = matches[0]
 
     with rasterio.open(raster_path) as src:
         data = src.read(band_num + 1).copy()
         if pixel_size is None:
             pixel_size = abs(src.transform.a)
 
-    # Apply nodata handling
     if input_nodata is not None:
         mask = np.isin(data, input_nodata) if isinstance(input_nodata, list) else (data == input_nodata)
         data[mask] = 255
-    data[data == 0] = 255  # treat class 0 as nodata sentinel
+    data[data == 0] = 255
 
     boundary_lengths = {}
 
-    # Horizontal boundaries (right neighbor comparisons)
     right_a = data[:, :-1]
     right_b = data[:, 1:]
     right_mask = (right_a != 255) & (right_b != 255) & (right_a != right_b)
@@ -178,7 +177,6 @@ def get_boundary_length_per_class_pair(
             key = tuple(sorted((int(a), int(b))))
             boundary_lengths[key] = boundary_lengths.get(key, 0) + 1
 
-    # Vertical boundaries (bottom neighbor comparisons)
     bottom_a = data[:-1, :]
     bottom_b = data[1:, :]
     bottom_mask = (bottom_a != 255) & (bottom_b != 255) & (bottom_a != bottom_b)
@@ -188,15 +186,13 @@ def get_boundary_length_per_class_pair(
             key = tuple(sorted((int(a), int(b))))
             boundary_lengths[key] = boundary_lengths.get(key, 0) + 1
 
-    valid_pixels = np.sum(data != 255)
+    valid_pixels = int(np.sum(data != 255))
     pixel_area = pixel_size ** 2
     total_area = valid_pixels * pixel_area
 
-    # Convert counts to meters
     for key in boundary_lengths:
         boundary_lengths[key] *= pixel_size
 
-    # Replace class ids with names if requested
     if class_info is not None:
         named_lengths = {}
         for (class_a, class_b), length in boundary_lengths.items():
@@ -218,9 +214,7 @@ def get_boundary_length_per_class_pair(
     else:
         for key, length_m in boundary_lengths.items():
             length_km = float(length_m / 1000.0)
-            results[key] = {
-                'length_km': round(length_km, 3)
-            }
+            results[key] = {'length_km': round(length_km, 3)}
 
     return results
 
